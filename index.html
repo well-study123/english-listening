@@ -5,6 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>英语逐句听力练习</title>
 <style>
+ .word {
+  cursor: pointer;
+  border-radius: 3px;
+  transition: background .15s;
+}
+.word:hover {
+  background: #4ecca3;
+  color: #1a1a2e;
+}
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
@@ -87,6 +96,81 @@
     background: #0f3460; padding: 2px 6px; border-radius: 4px;
     color: #4ecca3; font-size: 12px;
   }
+   /* ===== 可点击单词 ===== */
+  .word {
+    cursor: pointer;
+    border-radius: 3px;
+    transition: background .15s;
+  }
+  .word:hover {
+    background: #4ecca3;
+    color: #1a1a2e;
+  }
+
+  /* ===== 查词弹窗 ===== */
+  .dict-popup {
+    position: fixed; right: 20px; bottom: 80px;
+    width: 320px; max-height: 50vh; overflow-y: auto;
+    background: #16213e; border: 1px solid #4ecca3;
+    border-radius: 10px; padding: 14px; display: none;
+    z-index: 100; box-shadow: 0 8px 24px rgba(0,0,0,.5);
+  }
+  .dict-popup.show { display: block; }
+  .dict-header {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 10px; font-size: 18px; color: #4ecca3;
+  }
+  .dict-header #dictWord { font-weight: 700; }
+  .dict-header #dictPhonetic { font-size: 13px; color: #888; }
+  .dict-header button {
+    margin-left: auto; background: none; border: none;
+    color: #888; cursor: pointer; font-size: 16px;
+  }
+  .dict-body { font-size: 13px; line-height: 1.6; color: #ccc; }
+  .dict-body .pos { color: #4ecca3; font-weight: 600; }
+  .dict-body .def { margin-bottom: 8px; }
+  .dict-body .example { color: #999; font-style: italic; font-size: 12px; }
+  .add-btn {
+    margin-top: 12px; width: 100%; padding: 8px;
+    background: #0f3460; color: #4ecca3;
+    border: 1px solid #4ecca3; border-radius: 6px;
+    cursor: pointer; font-size: 13px;
+  }
+  .add-btn:hover { background: #4ecca3; color: #1a1a2e; }
+
+  /* ===== 生词本面板 ===== */
+  .vocab-panel {
+    position: fixed; left: 20px; bottom: 80px;
+    width: 340px; max-height: 60vh; overflow-y: auto;
+    background: #16213e; border: 1px solid #4ecca3;
+    border-radius: 10px; padding: 14px; display: none;
+    z-index: 100; box-shadow: 0 8px 24px rgba(0,0,0,.5);
+  }
+  .vocab-panel.show { display: block; }
+  .vocab-header {
+    display: flex; align-items: center;
+    margin-bottom: 10px; color: #4ecca3;
+  }
+  .vocab-header h3 { font-size: 15px; margin-right: auto; }
+  .vocab-header button {
+    background: none; border: none; color: #888;
+    cursor: pointer; font-size: 16px;
+  }
+  .vocab-list .vocab-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px; border-bottom: 1px solid #0f3460;
+    font-size: 14px;
+  }
+  .vocab-list .vocab-item .v-word { color: #4ecca3; font-weight: 600; }
+  .vocab-list .vocab-item .v-def {
+    color: #999; font-size: 12px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .vocab-list .vocab-item .v-del {
+    margin-left: auto; background: none; border: none;
+    color: #666; cursor: pointer; font-size: 14px;
+  }
+  .vocab-list .vocab-item .v-del:hover { color: #e94560; }
 </style>
 </head>
 <body>
@@ -127,7 +211,25 @@
   </label>
   <span class="status" id="status">就绪</span>
 </div>
+<!-- 查词弹窗 -->
+<div id="dictPopup" class="dict-popup">
+  <div class="dict-header">
+    <span id="dictWord">word</span>
+    <span id="dictPhonetic"></span>
+    <button id="dictClose">✕</button>
+  </div>
+  <div id="dictBody" class="dict-body">加载中...</div>
+  <button id="addToVocab" class="add-btn">＋ 加入生词本</button>
+</div>
 
+<!-- 生词本面板 -->
+<div id="vocabPanel" class="vocab-panel">
+  <div class="vocab-header">
+    <h3>📚 生词本 (<span id="vocabCount">0</span>)</h3>
+    <button id="vocabClose">✕</button>
+  </div>
+  <div id="vocabList" class="vocab-list"></div>
+</div>
 <script>
 /* ============ 全局状态 ============ */
 const video = document.getElementById('video');
@@ -183,6 +285,17 @@ function parseSRT(text) {
 
 /* ============ 渲染字幕列表 ============ */
 function renderSubtitles() {
+ /* ============ 把句子拆成可点击单词 ============ */
+function wrapWords(text) {
+  // 先转义 HTML 防止注入
+  const escaped = escapeHtml(text);
+  // 用正则匹配英文单词（含连字符和撇号），其余字符原样保留
+  return escaped.replace(/[A-Za-z][A-Za-z'\-]*/g, (word) => {
+    return `<span class="word" data-word="${word.toLowerCase()}">${word}</span>`;
+  });
+}
+
+function renderSubtitles() {
   subtitleList.innerHTML = '';
   if (subtitles.length === 0) {
     subtitleList.innerHTML = '<div class="empty"><p>字幕为空</p></div>';
@@ -192,12 +305,11 @@ function renderSubtitles() {
     const div = document.createElement('div');
     div.className = 'line';
     div.dataset.index = i;
-    div.innerHTML = `<span class="time">${formatTime(sub.start)}</span>${escapeHtml(sub.text)}`;
-    div.addEventListener('click', () => playSentence(i));
+    div.innerHTML = `<span class="time">${formatTime(sub.start)}</span>${wrapWords(sub.text)}`;
+    // 注意：这里不再给整行绑点击，改到容器上做事件委托，见下一步
     subtitleList.appendChild(div);
   });
 }
-
 function escapeHtml(str) {
   const d = document.createElement('div');
   d.textContent = str;
@@ -342,6 +454,155 @@ document.addEventListener('keydown', (e) => {
       break;
   }
 });
+ /* ============ 点击单词查词 ============ */
+const dictPopup = document.getElementById('dictPopup');
+const dictWordEl = document.getElementById('dictWord');
+const dictPhoneticEl = document.getElementById('dictPhonetic');
+const dictBodyEl = document.getElementById('dictBody');
+const addToVocabBtn = document.getElementById('addToVocab');
+
+let currentLookup = null; // 当前查询的单词信息 {word, def}
+
+// 事件委托：点击字幕里的任意单词
+subtitleList.addEventListener('click', (e) => {
+  const wordEl = e.target.closest('.word');
+  if (wordEl) {
+    e.stopPropagation(); // 防止触发整句播放
+    const word = wordEl.dataset.word;
+    lookupWord(word);
+    return;
+  }
+  // 点击非单词区域（整句）仍然逐句播放
+  const lineEl = e.target.closest('.line');
+  if (lineEl) {
+    playSentence(parseInt(lineEl.dataset.index));
+  }
+});
+
+async function lookupWord(word) {
+  currentLookup = { word, def: '' };
+  dictWordEl.textContent = word;
+  dictPhoneticEl.textContent = '';
+  dictBodyEl.innerHTML = '查询中...';
+  dictPopup.classList.add('show');
+
+  try {
+    const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`);
+    if (!res.ok) throw new Error('not found');
+    const data = await res.json();
+    const entry = data[0];
+
+    // 音标
+    const phonetic = entry.phonetic || (entry.phonetics?.find(p => p.text)?.text) || '';
+    dictPhoneticEl.textContent = phonetic;
+
+    // 释义（取前 3 个）
+    let html = '';
+    let firstDef = '';
+    const meanings = (entry.meanings || []).slice(0, 3);
+    meanings.forEach(m => {
+      const def = m.definitions?.[0];
+      if (!def) return;
+      if (!firstDef) firstDef = def.definition;
+      html += `<div class="def">
+        <span class="pos">${m.partOfSpeech}</span> ${def.definition}`;
+      if (def.example) {
+        html += `<div class="example">e.g. ${def.example}</div>`;
+      }
+      html += `</div>`;
+    });
+    if (!html) html = '<div class="def">未找到释义</div>';
+    dictBodyEl.innerHTML = html;
+    currentLookup.def = firstDef;
+  } catch (err) {
+    dictBodyEl.innerHTML = '<div class="def">未找到该词，或网络请求失败。</div>';
+  }
+}
+
+document.getElementById('dictClose').addEventListener('click', () => {
+  dictPopup.classList.remove('show');
+});
+
+/* ============ 生词本（localStorage） ============ */
+const VOCAB_KEY = 'en_vocab_list';
+
+function getVocab() {
+  try { return JSON.parse(localStorage.getItem(VOCAB_KEY)) || []; }
+  catch { return []; }
+}
+function saveVocab(list) {
+  localStorage.setItem(VOCAB_KEY, JSON.stringify(list));
+}
+
+addToVocabBtn.addEventListener('click', () => {
+  if (!currentLookup) return;
+  const list = getVocab();
+  if (list.some(v => v.word === currentLookup.word)) {
+    addToVocabBtn.textContent = '✓ 已在生词本';
+    setTimeout(() => addToVocabBtn.textContent = '＋ 加入生词本', 1200);
+    return;
+  }
+  list.push({
+    word: currentLookup.word,
+    def: currentLookup.def,
+    time: Date.now()
+  });
+  saveVocab(list);
+  renderVocab();
+  addToVocabBtn.textContent = '✓ 已加入';
+  setTimeout(() => addToVocabBtn.textContent = '＋ 加入生词本', 1200);
+});
+
+/* ============ 生词本面板渲染 ============ */
+const vocabPanel = document.getElementById('vocabPanel');
+const vocabList = document.getElementById('vocabList');
+const vocabCount = document.getElementById('vocabCount');
+
+function renderVocab() {
+  const list = getVocab();
+  vocabCount.textContent = list.length;
+  if (list.length === 0) {
+    vocabList.innerHTML = '<div style="color:#666;font-size:13px;padding:8px;">还没有生词，点击字幕中的单词加入吧。</div>';
+    return;
+  }
+  vocabList.innerHTML = list.map((v, i) => `
+    <div class="vocab-item">
+      <span class="v-word">${escapeHtml(v.word)}</span>
+      <span class="v-def">${escapeHtml(v.def || '')}</span>
+      <button class="v-del" data-i="${i}">🗑</button>
+    </div>
+  `).join('');
+}
+
+vocabList.addEventListener('click', (e) => {
+  const delBtn = e.target.closest('.v-del');
+  if (delBtn) {
+    const list = getVocab();
+    list.splice(parseInt(delBtn.dataset.i), 1);
+    saveVocab(list);
+    renderVocab();
+  }
+});
+
+document.getElementById('vocabClose').addEventListener('click', () => {
+  vocabPanel.classList.remove('show');
+});
+
+/* ============ 打开生词本按钮 ============ */
+// 在底部 controls 里加一个按钮，这里动态创建，省得你改 HTML
+(function addVocabBtnToControls() {
+  const controls = document.querySelector('.controls');
+  const btn = document.createElement('button');
+  btn.textContent = '📚 生词本';
+  btn.addEventListener('click', () => {
+    renderVocab();
+    vocabPanel.classList.toggle('show');
+  });
+  controls.insertBefore(btn, controls.querySelector('.status'));
+})();
+
+// 页面加载时初始化生词本计数
+renderVocab();
 </script>
 </body>
 </html>
